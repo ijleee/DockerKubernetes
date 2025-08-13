@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: replica-monitoring-config
+  namespace: default
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    
+    scrape_configs:
+    - job_name: 'replica-monitor'
+      static_configs:
+      - targets: ['replica-monitor-service:8080']
+      metrics_path: '/metrics'
+      scrape_interval: 10s
+
+  alerts.yml: |
+    groups:
+    - name: replica-limits
+      rules:
+      - alert: ReplicaLimitApproaching
+        expr: (current_replicas / max_replicas) > 0.8
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Replica count approaching limit"
+          description: "Application {{ $labels.instance }} is using {{ $value | humanizePercentage }} of max replicas"
+      
+      - alert: ReplicaLimitReached
+        expr: current_replicas >= max_replicas
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Maximum replica limit reached"
+          description: "Application {{ $labels.instance }} has reached maximum replica limit"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: replica-monitor
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: replica-monitor
+  template:
+    metadata:
+      labels:
+        app: replica-monitor
+    spec:
+      containers:
+      - name: monitor
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        command:
+        - /bin/prometheus
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --web.console.libraries=/etc/prometheus/console_libraries
+        - --web.console.templates=/etc/prometheus/consoles
+        - --web.enable-lifecycle
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: config
+        configMap:
+          name: replica-monitoring-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: replica-monitor-prometheus
+  namespace: default
+spec:
+  selector:
+    app: replica-monitor
+  ports:
+  - protocol: TCP
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP

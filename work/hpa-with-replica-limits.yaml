@@ -1,0 +1,83 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-hpa-with-limits
+  namespace: default
+  labels:
+    app: web-app
+    component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: deploy-test01
+  minReplicas: 1
+  maxReplicas: 5  # Set conservative limit to prevent reaching max replica limit
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      selectPolicy: Min
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      selectPolicy: Max
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: replica-limit-config
+  namespace: default
+data:
+  max_replicas: "5"
+  error_code: "142901"
+  error_message: "Function has reached its max replica limit."
+  scaling_policy: |
+    {
+      "conservative_scaling": true,
+      "scale_up_cooldown": 60,
+      "scale_down_cooldown": 300,
+      "max_scale_up_pods": 2,
+      "max_scale_down_pods": 1
+    }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: replica-monitor-service
+  namespace: default
+spec:
+  selector:
+    app: replica-monitor
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

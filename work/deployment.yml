@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: deploy-test01
+  labels:
+    app: web-deploy
+    managed-by: replica-limit-handler
 spec:
   replicas: 3
   selector:
@@ -11,7 +14,30 @@ spec:
     metadata:
       labels:
         app: web-deploy
+      annotations:
+        max-replicas: "5"
+        error-handler: "replica-limit-handler"
     spec:
       containers:
       - name: nginx
         image: nginx:1.24
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+        - name: MAX_REPLICAS
+          valueFrom:
+            configMapKeyRef:
+              name: replica-limit-config
+              key: max_replicas
+        - name: ERROR_CODE
+          valueFrom:
+            configMapKeyRef:
+              name: replica-limit-config
+              key: error_code
